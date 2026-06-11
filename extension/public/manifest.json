@@ -1,0 +1,24 @@
+{
+    "manifest_version": 3,
+    "name": "Analogy-O",
+    "version": "1.0.0",
+    "description": "Explain anything using analogies",
+  
+    "permissions": [
+      "activeTab",
+      "storage",
+      "scripting"
+    ],
+  
+    "host_permissions": [
+      "<all_urls>"
+    ],
+  
+    "background": {
+      "service_worker": "background.js"
+    },
+  
+    "action": {
+      "default_title": "Analogy-O"
+    }
+  }
