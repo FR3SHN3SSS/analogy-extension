@@ -48,9 +48,6 @@ const SHADOW_STYLES = `
 
 
 
-
-
-
 let shadowRoot = null;
 let activeSelection = "";
 const ANALOGY_DOMAINS = ["UFC", "Cooking", "Soccer", "Gaming", "Movies"];
@@ -72,10 +69,22 @@ function getShadowRoot() {
 }
 
 
+function cleanupUI() {
+  const root = getShadowRoot();
+  
+  const existingOverlay = root.querySelector(".analogy-overlay");
+  if (existingOverlay) existingOverlay.remove();
+  
+  const existingTrigger = root.querySelector(".floating-trigger");
+  if (existingTrigger) existingTrigger.remove();
+}
+
+
 
 
 //Floating explain button
 function showFloatingButton(rect, text) {
+  cleanupUI();
   const root = getShadowRoot();
   const existing = root.querySelector(".floating-trigger");
   if (existing) existing.remove();
@@ -83,12 +92,16 @@ function showFloatingButton(rect, text) {
   const btn = document.createElement("button");
   btn.className = "floating-trigger";
   btn.textContent = "Explain";
+
+  btn.onmousedown = (e) => e.stopPropagation();
+  btn.onmouseup = (e) => e.stopPropagation();
+
   btn.style.left = `${rect.left + window.scrollX}px`;
   btn.style.top = `${rect.top + window.scrollY - 40}px`;
 
-  btn.onclick = () => {
+  btn.onclick = (e) => {
+    e.stopPropagation();
     activeSelection = text;
-    btn.remove();
     showDomainModal(text);
   };
 
@@ -97,6 +110,7 @@ function showFloatingButton(rect, text) {
 
 //Domain selection modal
 function showDomainModal(text) {
+  cleanupUI();
   const root = getShadowRoot();
   const overlay = document.createElement("div");
   overlay.className = "analogy-overlay";
@@ -119,8 +133,15 @@ function showDomainModal(text) {
       </div>
     `;
 
+
+    overlay.onclick = (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }};
+
+
     overlay.querySelectorAll(".domain-btn").forEach(btn => {
-      btn.onclick = () => {
+      btn.onclick = (e) => {
         const domain = btn.dataset.domain;
         chrome.storage.local.set({ [LAST_DOMAIN_KEY]: domain });
         overlay.remove();
@@ -129,12 +150,14 @@ function showDomainModal(text) {
     });
 
     overlay.querySelector("#cancel-btn").onclick = () => overlay.remove();
+    
     root.appendChild(overlay);
   });
 }
 
 //Loading state modal
 function showLoading() {
+  cleanupUI();
   const root = getShadowRoot();
   const overlay = document.createElement("div");
   overlay.className = "analogy-overlay";
@@ -145,6 +168,7 @@ function showLoading() {
 
 //Result modal
 function showResult(text, domain, explanation) {
+  cleanupUI();
   const root = getShadowRoot();
   const overlay = document.createElement("div");
   overlay.className = "analogy-overlay";
@@ -163,6 +187,12 @@ function showResult(text, domain, explanation) {
       </div>
     </div>
   `;
+
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  };
 
   overlay.querySelector("#copy-btn").onclick = (e) => {
     navigator.clipboard.writeText(explanation);
@@ -194,24 +224,29 @@ function handleExplanationRequest(text, domain) {
   });
 }
 
-document.addEventListener("mouseup", () => {
+document.addEventListener("mouseup", (e) => {
+  if (e.target.id === "analogy-o-root") {
+    return;
+  }
   setTimeout(() => {
     const selection = window.getSelection();
     const text = selection.toString().trim();
+
+    const root = getShadowRoot();
+    const isModalOpen = root.querySelector(".analogy-overlay");
+
+    if (isModalOpen) return;
+
     if (text.length > 0) {
       const rect = selection.getRangeAt(0).getBoundingClientRect();
       showFloatingButton(rect, text);
     } else {
-      const root = getShadowRoot();
-      root.querySelector(".floating-trigger")?.remove();
+      cleanupUI();
     }
   }, 20);
 });
 
 // Esc key close
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    const root = getShadowRoot();
-    root.querySelector(".analogy-overlay")?.remove();
-  }
+  if (e.key === "Escape") cleanupUI();
 });
