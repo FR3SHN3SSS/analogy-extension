@@ -1,469 +1,217 @@
-let explainButton = null;
-let modalOverlay = null;
-let loadingOverlay = null;
-let resultOverlay = null;
+const SHADOW_STYLES = `
+  :host { all: initial; font-family: 'Inter', system-ui, sans-serif; }
+  
+  /* Shared Overlay Style */
+  .analogy-overlay {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    background: rgba(15, 23, 42, 0.6); display: flex;
+    align-items: center; justify-content: center; z-index: 2147483647;
+    animation: fadeIn 0.2s ease-out;
+  }
 
-// Test options for Modal
+  /* Card Base */
+  .card {
+    background: white; border-radius: 12px; padding: 24px;
+    width: 360px; max-width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Typography */
+  h3 { margin: 0 0 12px 0; font-size: 18px; color: #111827; }
+  .preview-box { 
+    background: #f3f4f6; padding: 10px; border-radius: 8px; 
+    font-size: 13px; color: #4b5563; margin-bottom: 16px; font-style: italic;
+  }
+
+  /* Buttons */
+  .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+  .btn {
+    padding: 10px; border-radius: 8px; border: 1px solid #e5e7eb;
+    background: white; cursor: pointer; transition: all 0.2s; font-size: 14px;
+  }
+  .btn:hover { background: #f9fafb; border-color: #6366f1; color: #6366f1; }
+  .btn-primary { background: #6366f1; color: white; border: none; font-weight: 600; }
+  .btn-primary:hover { background: #4f46e5; color: white; transform: translateY(-1px); }
+
+  /* Floating Trigger */
+  .floating-trigger {
+    position: absolute; z-index: 2147483647; background: #1a1a1a;
+    color: white; border: none; padding: 6px 14px; border-radius: 20px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2); animation: popIn 0.15s ease-out;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes popIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+`;
+
+
+
+
+
+
+let shadowRoot = null;
+let activeSelection = "";
 const ANALOGY_DOMAINS = ["UFC", "Cooking", "Soccer", "Gaming", "Movies"];
 const LAST_DOMAIN_KEY = "analogyO_lastDomain";
 
-//button creation
-function createButton() {
+function getShadowRoot() {
+  if (shadowRoot) return shadowRoot;
+  
+  const host = document.createElement("div");
+  host.id = "analogy-o-root";
+  document.body.appendChild(host);
+  
+  shadowRoot = host.attachShadow({ mode: "open" });
+  const sheet = document.createElement("style");
+  sheet.textContent = SHADOW_STYLES;
+  shadowRoot.appendChild(sheet);
+  
+  return shadowRoot;
+}
+
+
+
+
+//Floating explain button
+function showFloatingButton(rect, text) {
+  const root = getShadowRoot();
+  const existing = root.querySelector(".floating-trigger");
+  if (existing) existing.remove();
+
   const btn = document.createElement("button");
+  btn.className = "floating-trigger";
   btn.textContent = "Explain";
-  btn.id = "analogyO-explain-btn";
+  btn.style.left = `${rect.left + window.scrollX}px`;
+  btn.style.top = `${rect.top + window.scrollY - 40}px`;
 
-  btn.style.position = "fixed";
-  btn.style.zIndex = "2147483647";
-  btn.style.padding = "6px 12px";
-  btn.style.background = "#1a1a1a";
-  btn.style.color = "#fff";
-  btn.style.border = "none";
-  btn.style.borderRadius = "6px";
-  btn.style.fontSize = "13px";
-  btn.style.fontFamily = "sans-serif";
-  btn.style.cursor = "pointer";
-  btn.style.boxShadow = "0 2px 8px rgba(0,0,0,0.25)";
-  btn.style.display = "none";
+  btn.onclick = () => {
+    activeSelection = text;
+    btn.remove();
+    showDomainModal(text);
+  };
 
-  btn.addEventListener("mousedown", (e) => {
-    e.preventDefault();
+  root.appendChild(btn);
+}
+
+//Domain selection modal
+function showDomainModal(text) {
+  const root = getShadowRoot();
+  const overlay = document.createElement("div");
+  overlay.className = "analogy-overlay";
+
+  chrome.storage.local.get([LAST_DOMAIN_KEY], (res) => {
+    const lastDomain = res[LAST_DOMAIN_KEY];
+    
+    overlay.innerHTML = `
+      <div class="card">
+        <h3>Explain this using...</h3>
+        <div class="preview-box">"${text.slice(0, 100)}${text.length > 100 ? '...' : ''}"</div>
+        <div class="btn-grid">
+          ${ANALOGY_DOMAINS.map(d => `
+            <button class="btn domain-btn ${d === lastDomain ? 'btn-primary' : ''}" data-domain="${d}">
+              ${d}
+            </button>
+          `).join('')}
+        </div>
+        <button id="cancel-btn" class="btn" style="width:100%">Cancel</button>
+      </div>
+    `;
+
+    overlay.querySelectorAll(".domain-btn").forEach(btn => {
+      btn.onclick = () => {
+        const domain = btn.dataset.domain;
+        chrome.storage.local.set({ [LAST_DOMAIN_KEY]: domain });
+        overlay.remove();
+        handleExplanationRequest(text, domain);
+      };
+    });
+
+    overlay.querySelector("#cancel-btn").onclick = () => overlay.remove();
+    root.appendChild(overlay);
   });
+}
 
-  btn.addEventListener("click", () => {
-    const selectedText = window.getSelection().toString().trim();
+//Loading state modal
+function showLoading() {
+  const root = getShadowRoot();
+  const overlay = document.createElement("div");
+  overlay.className = "analogy-overlay";
+  overlay.id = "analogy-loading";
+  overlay.innerHTML = `<div class="card" style="text-align:center;">Generating analogy...</div>`;
+  root.appendChild(overlay);
+}
 
-    if (selectedText.length > 0) {
-      console.log("dispatching analogyO:explain");
-      document.dispatchEvent(new CustomEvent("analogyO:explain", {
-        detail: { text: selectedText }
-      }));
+//Result modal
+function showResult(text, domain, explanation) {
+  const root = getShadowRoot();
+  const overlay = document.createElement("div");
+  overlay.className = "analogy-overlay";
+
+  overlay.innerHTML = `
+    <div class="card" style="width: 450px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <span style="font-size:12px; font-weight:bold; color:#6366f1;">${domain.toUpperCase()} ANALOGY</span>
+        <button id="close-x" style="background:none; border:none; cursor:pointer; font-size:20px;">&times;</button>
+      </div>
+      <div class="preview-box">"${text.slice(0, 80)}..."</div>
+      <div style="line-height:1.6; color:#1f2937; margin-bottom:20px;">${explanation}</div>
+      <div class="btn-grid">
+        <button id="copy-btn" class="btn btn-primary">Copy Analogy</button>
+        <button id="retry-btn" class="btn">Try Another</button>
+      </div>
+    </div>
+  `;
+
+  overlay.querySelector("#copy-btn").onclick = (e) => {
+    navigator.clipboard.writeText(explanation);
+    e.target.textContent = "Copied! ✓";
+    setTimeout(() => e.target.textContent = "Copy Analogy", 2000);
+  };
+
+  overlay.querySelector("#retry-btn").onclick = () => {
+    overlay.remove();
+    showDomainModal(text);
+  };
+
+  overlay.querySelector("#close-x").onclick = () => overlay.remove();
+  root.appendChild(overlay);
+}
+
+
+
+//Logic
+
+function handleExplanationRequest(text, domain) {
+  showLoading();
+  chrome.runtime.sendMessage({ type: "EXPLAIN_REQUEST", text, domain }, (resp) => {
+    const root = getShadowRoot();
+    root.querySelector("#analogy-loading")?.remove();
+    if (resp?.explanation) {
+      showResult(text, domain, resp.explanation);
     }
-
-    hideButton();
-    window.getSelection().removeAllRanges();
   });
-
-  document.body.appendChild(btn);
-  return btn;
 }
 
-//Position and display settings
-function showButton(rect) {
-  if (!explainButton) {
-    explainButton = createButton();
-  }
-
-  explainButton.style.top = `${rect.top - 36}px`;
-  explainButton.style.left = `${rect.left}px`;
-  explainButton.style.display = "block";
-}
-
-function hideButton() {
-  if (explainButton) {
-    explainButton.style.display = "none";
-  }
-}
-
-//button display on text selection
 document.addEventListener("mouseup", () => {
-    setTimeout(() => {
-      const selection = window.getSelection();
-      const selectedText = selection.toString().trim();
-  
-      if (selectedText.length > 0) {
-        const range = selection.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        showButton(rect);
-      } else {
-        hideButton();
-      }
-    }, 15);
-  });
-
-function createModal(selectedText) {
-    // overlay behind modal
-    const overlay = document.createElement("div");
-    overlay.id = "analogyO-modal-overlay";
-    overlay.style.position = "fixed";
-    overlay.style.top = "0";
-    overlay.style.left = "0";
-    overlay.style.width = "100%";
-    overlay.style.height = "100%";
-    overlay.style.background = "rgba(0, 0, 0, 0.4)";
-    overlay.style.zIndex = "2147483647";
-    overlay.style.display = "flex";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.style.fontFamily = "sans-serif";
-  
-    // modal box
-    const modal = document.createElement("div");
-    modal.id = "analogyO-modal";
-    modal.style.background = "#fff";
-    modal.style.borderRadius = "10px";
-    modal.style.padding = "20px";
-    modal.style.width = "320px";
-    modal.style.maxWidth = "90%";
-    modal.style.boxShadow = "0 8px 24px rgba(0,0,0,0.3)";
-    modal.style.color = "#1a1a1a";
-  
-    // selected text preview
-    const preview = document.createElement("div");
-    preview.textContent = selectedText.length > 120
-      ? selectedText.slice(0, 120) + "…"
-      : selectedText;
-    preview.style.fontSize = "13px";
-    preview.style.color = "#555";
-    preview.style.background = "#f4f4f4";
-    preview.style.borderRadius = "6px";
-    preview.style.padding = "8px";
-    preview.style.marginBottom = "12px";
-    preview.style.maxHeight = "80px";
-    preview.style.overflowY = "auto";
-  
-    // title text
-    const title = document.createElement("div");
-    title.textContent = "Explain this using an analogy from:";
-    title.style.fontSize = "14px";
-    title.style.fontWeight = "600";
-    title.style.marginBottom = "10px";
-  
-    // domain button grid
-    const domainContainer = document.createElement("div");
-    domainContainer.style.display = "grid";
-    domainContainer.style.gridTemplateColumns = "1fr 1fr";
-    domainContainer.style.gap = "8px";
-    domainContainer.style.marginBottom = "12px";
-  
-    // save and load last used domain to highlight it
-    chrome.storage.local.get([LAST_DOMAIN_KEY], (result) => {
-      const lastDomain = result[LAST_DOMAIN_KEY];
-  
-      ANALOGY_DOMAINS.forEach((domain) => {
-        const domainBtn = document.createElement("button");
-        domainBtn.textContent = domain;
-        domainBtn.style.padding = "8px";
-        domainBtn.style.border = domain === lastDomain
-          ? "2px solid #1a1a1a"
-          : "1px solid #ccc";
-        domainBtn.style.borderRadius = "6px";
-        domainBtn.style.background = "#fafafa";
-        domainBtn.style.cursor = "pointer";
-        domainBtn.style.fontSize = "13px";
-
-
-        //hover effects
-        domainBtn.addEventListener("mouseenter", () => {
-          domainBtn.style.background = "#eee";
-        });
-        domainBtn.addEventListener("mouseleave", () => {
-          domainBtn.style.background = "#fafafa";
-        });
-  
-        domainBtn.addEventListener("click", () => {
-          chrome.storage.local.set({ [LAST_DOMAIN_KEY]: domain });
-
-          closeModal();
-
-          showLoading();
-  
-          //updated background.js payload
-          chrome.runtime.sendMessage(
-          {
-            type: "EXPLAIN_REQUEST",
-            text: selectedText,
-            domain: domain
-          },
-
-          (response) => {
-            hideLoading();
-
-            if (chrome.runtime.lastError) {
-              console.error(chrome.runtime.lastError);
-              return;
-            }
-
-            if (response?.explanation) {
-              showResult (
-                selectedText,
-                domain,
-                response.explanation
-              );
-            }
-          }
-        );
-      });
-  
-        domainContainer.appendChild(domainBtn);
-      });
-    });
-  
-    // Cancel button
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "Cancel";
-    cancelBtn.style.width = "100%";
-    cancelBtn.style.padding = "8px";
-    cancelBtn.style.border = "none";
-    cancelBtn.style.borderRadius = "6px";
-    cancelBtn.style.background = "#eee";
-    cancelBtn.style.cursor = "pointer";
-    cancelBtn.style.fontSize = "13px";
-    cancelBtn.addEventListener("click", closeModal);
-  
-    modal.appendChild(title);
-    modal.appendChild(preview);
-    modal.appendChild(domainContainer);
-    modal.appendChild(cancelBtn);
-    overlay.appendChild(modal);
-  
-    // click outside modal triggers closing
-    overlay.addEventListener("mousedown", (e) => {
-      if (e.target === overlay) {
-        closeModal();
-      }
-    });
-  
-    document.body.appendChild(overlay);
-    return overlay;
-  }
-  
-  function showModal(selectedText) {
-    if (modalOverlay) {
-      closeModal();
+  setTimeout(() => {
+    const selection = window.getSelection();
+    const text = selection.toString().trim();
+    if (text.length > 0) {
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      showFloatingButton(rect, text);
+    } else {
+      const root = getShadowRoot();
+      root.querySelector(".floating-trigger")?.remove();
     }
-    modalOverlay = createModal(selectedText);
-  
-    // esc key close
-    document.addEventListener("keydown", handleEscape);
+  }, 20);
+});
+
+// Esc key close
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const root = getShadowRoot();
+    root.querySelector(".analogy-overlay")?.remove();
   }
-  
-  function closeModal() {
-    if (modalOverlay) {
-      modalOverlay.remove();
-      modalOverlay = null;
-    }
-    document.removeEventListener("keydown", handleEscape);
-  }
-
-  function showLoading() {
-    hideLoading();
-
-    const overlay = document.createElement("div");
-    overlay.id = "analogyo-loading-overlay";
-
-    Object.assign(overlay.style, {
-      position: "fixed",
-      top: "0",
-      left: "0",
-      width: "100%",
-      height: "100%",
-      background: "rgba(0,0,0,0.3)",
-      zIndex: "2147483647",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-    });
-
-    const box = document.createElement("div");
-
-    Object.assign(box.style, {
-      background: "#ffffff",
-      padding: "18px 28px",
-      borderRadius: "10px",
-      boxShadow: "0 8px 20px rgba(0,0,0,0.2)",
-      fontFamily: "sans-serif",
-      fontWeight: "600",
-    });
-
-    box.textContent = "Generating analogy....";
-
-    overlay.appendChild(box);
-
-    document.body.appendChild(overlay);
-
-    loadingOverlay = overlay;
-  }
-
-  function hideLoading() {
-    if (!loadingOverlay) return;
-
-    loadingOverlay.remove();
-    loadingOverlay = null;
-  }
-  
-  function handleEscape(e) {
-    if (e.key === "Escape") {
-      closeModal();
-    }
-  }
-
-  function showResult(text, domain, explanation) {
-    closeResult();
-  
-    resultOverlay = createResultPanel(
-      text,
-      domain,
-      explanation
-    );
-  }
-
-  function closeResult() {
-    if (!resultOverlay) return;
-  
-    resultOverlay.remove();
-    resultOverlay = null;
-  
-    document.removeEventListener(
-      "keydown",
-      handleResultEscape
-    );
-  }
-
-  function handleResultEscape(event) {
-    if (event.key === "Escape") {
-      closeResult();
-    }
-  }
-
-  function createResultPanel(
-    selectedText,
-    domain,
-    explanation
-  ) {
-    const overlay = document.createElement("div");
-  
-    Object.assign(overlay.style, {
-      position: "fixed",
-      top: "0",
-      left: "0",
-      width: "100%",
-      height: "100%",
-      background: "rgba(0,0,0,0.45)",
-      zIndex: "2147483647",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-    });
-  
-    const panel = document.createElement("div");
-  
-    Object.assign(panel.style, {
-      background: "#fff",
-      width: "400px",
-      maxWidth: "90%",
-      borderRadius: "12px",
-      padding: "24px",
-      fontFamily: "sans-serif",
-      boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
-    });
-  
-    const badge = document.createElement("div");
-  
-    badge.textContent = `${domain} Analogy`;
-  
-    Object.assign(badge.style, {
-      display: "inline-block",
-      background: "#111",
-      color: "#fff",
-      padding: "4px 10px",
-      borderRadius: "6px",
-      marginBottom: "16px",
-      fontSize: "12px",
-    });
-  
-    const preview = document.createElement("p");
-  
-    preview.textContent =
-      selectedText.length > 100
-        ? `${selectedText.slice(0, 100)}...`
-        : selectedText;
-  
-    Object.assign(preview.style, {
-      background: "#f5f5f5",
-      padding: "10px",
-      borderRadius: "8px",
-      color: "#666",
-      fontSize: "13px",
-      lineHeight: "1.5",
-    });
-  
-    const explanationElement =
-      document.createElement("p");
-  
-    explanationElement.textContent = explanation;
-  
-    Object.assign(explanationElement.style, {
-      marginTop: "20px",
-      lineHeight: "1.7",
-      fontSize: "15px",
-    });
-  
-    const buttonContainer =
-      document.createElement("div");
-  
-    Object.assign(buttonContainer.style, {
-      display: "flex",
-      gap: "10px",
-      marginTop: "24px",
-    });
-  
-    const retryButton =
-      document.createElement("button");
-  
-    retryButton.textContent =
-      "Try Another Domain";
-  
-    retryButton.style.flex = "1";
-  
-    retryButton.addEventListener("click", () => {
-      closeResult();
-      showModal(selectedText);
-    });
-  
-    const closeButton =
-      document.createElement("button");
-  
-    closeButton.textContent = "Close";
-  
-    closeButton.style.flex = "1";
-  
-    closeButton.addEventListener(
-      "click",
-      closeResult
-    );
-  
-    buttonContainer.append(
-      retryButton,
-      closeButton
-    );
-  
-    panel.append(
-      badge,
-      preview,
-      explanationElement,
-      buttonContainer
-    );
-  
-    overlay.appendChild(panel);
-  
-    overlay.addEventListener("mousedown", (event) => {
-      if (event.target === overlay) {
-        closeResult();
-      }
-    });
-  
-    document.addEventListener(
-      "keydown",
-      handleResultEscape
-    );
-  
-    document.body.appendChild(overlay);
-  
-    return overlay;
-  }
-  
-
-  document.addEventListener("analogyO:explain", (e) => {
-  showModal(e.detail.text);
 });
