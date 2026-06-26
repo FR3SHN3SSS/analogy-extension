@@ -166,6 +166,27 @@ function showLoading() {
   root.appendChild(overlay);
 }
 
+//Error Modal
+function showError(message) {
+  cleanupUI();
+  const root = getShadowRoot();
+  const overlay = document.createElement("div");
+  overlay.className = "analogy-overlay";
+
+  overlay.innerHTML = `
+    <div class="card" style="text-align:center;">
+      <div style="font-size:32px; margin-bottom:12px;">⚠️</div>
+      <h3 style="color:#dc2626;">Something went wrong</h3>
+      <p style="color:#6b7280; font-size:14px; margin-bottom:20px;">${message}</p>
+      <button id="error-close" class="btn btn-primary" style="width:100%">Close</button>
+    </div>
+  `;
+
+  overlay.querySelector("error-close").onclick = () => overlay.remove();
+  overlay.onclick = (e) => {if (e.target === overlay) overlay.remove(); };
+  root.appendChild(overlay);
+}
+
 //Result modal
 function showResult(text, domain, explanation) {
   cleanupUI();
@@ -220,6 +241,8 @@ function handleExplanationRequest(text, domain) {
     root.querySelector("#analogy-loading")?.remove();
     if (resp?.explanation) {
       showResult(text, domain, resp.explanation);
+    } else {
+      showError(resp?.error || "Something went wrong, Please try again");
     }
   });
 }
