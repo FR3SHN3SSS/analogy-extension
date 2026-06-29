@@ -20,6 +20,7 @@ app.get("/health", (req,res) => {
 
 
 app.post("/explain", (req,res) => {
+  console.log("[AnalogyO] Request received:", req.body);
   const {text, domain} = req.body;
 
   //missing domain or text
@@ -41,7 +42,7 @@ app.post("/explain", (req,res) => {
     const explanation = getMockExplanation(text,domain);
     res.status(200).json({
       success: true,
-      explantaion: explanation,
+      explanation: explanation,
       domain: domain,
     });
   

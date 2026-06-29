@@ -182,7 +182,7 @@ function showError(message) {
     </div>
   `;
 
-  overlay.querySelector("error-close").onclick = () => overlay.remove();
+  overlay.querySelector("#error-close").onclick = () => overlay.remove();
   overlay.onclick = (e) => {if (e.target === overlay) overlay.remove(); };
   root.appendChild(overlay);
 }

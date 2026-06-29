@@ -78,7 +78,18 @@ function saveToHistory(entry) {
     const history = result.analogyHistory || [];
     history.unshift(entry);
     const capped = history.slice(0,20);
-    chrome.storage.local.get({ analogyHistory: capped });
+    chrome.storage.local.set({ analogyHistory: capped });
+  });
+}
+
+
+function deleteFromHistory(id, callback) {
+  chrome.storage.local.get(["analogyHistory"], (result) => {
+    const history = result.analogyHistory || [];
+    const filtered = history.filter((item) => item.id !== id);
+    chrome.storage.local.set({ analogyHistory: filtered }, () => {
+      callback(filtered);
+    });
   });
 }
 
