@@ -1,9 +1,13 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({model: "gemini-2.5-flash"});
 
 app.use(cors());
 app.use(express.json());
@@ -19,7 +23,7 @@ app.get("/health", (req,res) => {
 });
 
 
-app.post("/explain", (req,res) => {
+app.post("/explain", async (req,res) => {
   console.log("[AnalogyO] Request received:", req.body);
   const {text, domain} = req.body;
 
@@ -37,9 +41,9 @@ app.post("/explain", (req,res) => {
     });
   }
 
-  //Explanation(still returning mock data)
+  //Explanation(from gemini api)
   try {
-    const explanation = getMockExplanation(text,domain);
+    const explanation = await getGeminiExplanation(text,domain);
     res.status(200).json({
       success: true,
       explanation: explanation,
@@ -54,25 +58,30 @@ app.post("/explain", (req,res) => {
   }
 });
 
-//Moved from background.js since generation layer lives in server.js now
-function getMockExplanation(text,domain) {
-  const textPreview = text.slice(0,80).trim();
-  const explanations = {
-    UFC: `Imagine a fighter studying film before a championship bout. "${textPreview}..." is like analyzing your opponent's tendencies so you know exactly when to strike.`,
+//Explanation from Google Gemini
+async function getGeminiExplanation(text,domain) {
+  const prompt = `
+    You are an expert at explaining complex concepts using simple analogies.
+    
+    Explain the following text using a ${domain} analogy.
+    
+    Text to explain: "${text}"
+    
+    Rules:
+    - Use a ${domain} analogy specifically
+    - Keep the explanation to 2-3 sentences
+    - Be concrete and vivid
+    - Return plain text only, no bullet points or markdown
+    - Do not start with "In ${domain}..." — be creative with the opening
+  `;
 
-    Cooking: `Think of "${textPreview}..." like reducing a sauce. You remove unnecessary ingredients until only the most important flavors remain.`,
+  const result = await model.generateContent(prompt);
+  const explanation = result.response.text().trim();
 
-    Soccer: `Imagine a midfielder scanning the field. "${textPreview}..." is similar to identifying the best passing lane before making the perfect assist.`,
-
-    Gaming: `Think of "${textPreview}..." like unlocking a skill tree. Early decisions create stronger opportunities later in the game.`,
-
-    Movies: `Picture a movie's three-act structure. "${textPreview}..." is part of a larger story where every scene contributes to the final payoff.`,
-  };
-
-  return (
-    explanations[domain] || `Here is an analogy for "${textPreview}..." using the "${domain}" framework`
-  );
+  console.log("[AnalogyO] Gemini response:", explanation);
+  return explanation;
 }
+
 
 
 app.listen(PORT, () => {
