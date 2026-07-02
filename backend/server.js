@@ -60,19 +60,43 @@ app.post("/explain", async (req,res) => {
 
 //Explanation from Google Gemini
 async function getGeminiExplanation(text,domain) {
+  const domainContexts = {
+    UFC: "UFC fighting — octagon, fighters, training camps, weight cuts, fight strategy, submissions, knockouts, cornermen",
+    Cooking: "cooking and the kitchen — ingredients, techniques, heat, timing, flavor, preparation, recipes",
+    Soccer: "soccer — players, positions, tactics, the pitch, passing, scoring, defending, the manager",
+    Gaming: "video games — mechanics, levels, resources, strategy, characters, upgrades, winning conditions",
+    Movies: "filmmaking and cinema — directors, scenes, characters, plot, tension, storytelling, the audience",
+  };
+
   const prompt = `
-    You are an expert at explaining complex concepts using simple analogies.
-    
-    Explain the following text using a ${domain} analogy.
-    
-    Text to explain: "${text}"
-    
-    Rules:
-    - Use a ${domain} analogy specifically
-    - Keep the explanation to 2-3 sentences
-    - Be concrete and vivid
-    - Return plain text only, no bullet points or markdown
-    - Do not start with "In ${domain}..." — be creative with the opening
+  You are AnalogyO — a master at making complex ideas instantly click through sharp, creative analogies.
+
+  CONCEPT TO EXPLAIN:
+  "${text}"
+
+  YOUR TASK:
+  Explain this concept using ONLY a ${domain} analogy.
+  Domain context to draw from: ${domainContexts[domain] || domain}
+
+  STRICT RULES:
+  1. Write 2-4 sentences depending on how much the concept needs — 
+     simple concepts get 2 sentences, complex ones can use up to 4.
+     Never pad with filler — every sentence must add insight.
+  2. Never mention the original concept by name — only the analogy
+  3. The first sentence sets up the analogy scene
+  4. The second sentence delivers the insight
+  5. No markdown, no bullets, no headers — plain text only
+  6. Never open with "Imagine", "Think of", "Picture" or "Consider"
+  7. Be specific — use real details from the ${domain} world
+  8. The reader should understand the concept without it being named
+
+  GOOD EXAMPLE (Gaming domain, explaining recursion):
+  "A save file that automatically loads another save file, which loads another, is every speedrunner's nightmare — an infinite loop with no escape. That's exactly how a function calling itself without a stopping condition traps your program forever."
+
+  BAD EXAMPLE (too generic, names the concept):
+  "Recursion is like a game level that keeps repeating. It's similar to when something in gaming happens over and over."
+
+  Now write the analogy for the concept above using the ${domain} domain:
   `;
 
   const result = await model.generateContent(prompt);
