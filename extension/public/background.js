@@ -1,7 +1,22 @@
 console.log("Background service worker loaded");
 
+const LAST_DOMAIN_KEY = "lastDomain";   
+const DOMAIN_STATS_KEY = "domainStats";
+const MAX_STORED_DOMAINS = 20;
+
 chrome.runtime.onInstalled.addListener(() => {
     console.log("Analogy-O installed");
+
+    chrome.storage.local.get([LAST_DOMAIN_KEY, DOMAIN_STATS_KEY], (result) => {
+      if (result[LAST_DOMAIN_KEY] && !result[DOMAIN_STATS_KEY]) {
+        const key = normalizeDomainKey(result[LAST_DOMAIN_KEY]);
+        chrome.storage.local.set({
+          [DOMAIN_STATS_KEY]: {
+            [key]: { display: result[LAST_DOMAIN_KEY], count: 1, lastUsed: Date.now() },
+          },
+        });
+      }
+    });
   });
 
 chrome.runtime.onMessage.addListener(
@@ -31,6 +46,7 @@ chrome.runtime.onMessage.addListener(
                 timestamp: new Date().toLocaleString(),
               };
               saveToHistory(newEntry);
+              upsertDomainStats(message.domain)
 
               sendResponse({ explanation: data.explanation });
             } else {
@@ -70,7 +86,32 @@ chrome.runtime.onMessage.addListener(
       return true;
 });
 
+function normalizeDomainKey(domain) {
+  return domain.trim().toLowerCase();
+}
 
+function upsertDomainStats(domain) {
+  const key = normalizeDomainKey(domain);
+  if (!key) return;
+
+  chrome.storage.local.get([DOMAIN_STATS_KEY], (result) => {
+    const stats = result[DOMAIN_STATS_KEY] || {};
+
+    stats[key] = {
+      display: domain.trim(),
+      count: (stats[key]?.count || 0) + 1,
+      lastUsed: Date.now(),
+    };
+
+    const keys = Object.keys(stats);
+    if (keys.length > MAX_STORED_DOMAINS) {
+      const lru = keys.sort((a, b) => stats[a].lastUsed - stats[b].lastUsed)[0];
+      delete stats[lru];
+    }
+
+    chrome.storage.local.set({ [DOMAIN_STATS_KEY]: stats });
+  });
+}
 
 
 function saveToHistory(entry) {

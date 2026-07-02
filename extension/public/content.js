@@ -23,6 +23,34 @@ const SHADOW_STYLES = `
     font-size: 13px; color: #4b5563; margin-bottom: 16px; font-style: italic;
   }
 
+  /* Domain input + chips */
+  .domain-input {
+    width: 100%; box-sizing: border-box; padding: 10px;
+    border-radius: 8px; border: 1px solid #e5e7eb;
+    font-size: 14px; margin-bottom: 10px; transition: all 0.2s;
+    font-family: inherit;
+  }
+  .domain-input:focus {
+    outline: none; border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+  .domain-input.input-error {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+  }
+  .chip-row {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 15px;
+  }
+  .chip {
+    padding: 5px 12px; border-radius: 20px; border: 1px solid #e5e7eb;
+    background: #f9fafb; color: #4b5563; cursor: pointer;
+    font-size: 12px; font-weight: 500; transition: all 0.2s;
+    font-family: inherit;
+  }
+  .chip:hover {
+    background: #eef2ff; border-color: #6366f1; color: #6366f1;
+  }
+
   /* Buttons */
   .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
   .btn {
@@ -52,6 +80,8 @@ let shadowRoot = null;
 let activeSelection = "";
 const ANALOGY_DOMAINS = ["UFC", "Cooking", "Soccer", "Gaming", "Movies"];
 const LAST_DOMAIN_KEY = "analogyO_lastDomain";
+const DOMAIN_STATS_KEY = "domainStats";
+const MAX_STORED_DOMAINS = 20;
 
 function getShadowRoot() {
   if (shadowRoot) return shadowRoot;
@@ -115,20 +145,21 @@ function showDomainModal(text) {
   const overlay = document.createElement("div");
   overlay.className = "analogy-overlay";
 
-  chrome.storage.local.get([LAST_DOMAIN_KEY], (res) => {
-    const lastDomain = res[LAST_DOMAIN_KEY];
+  chrome.storage.local.get([DOMAIN_STATS_KEY], (res) => {
+    const stats = res[DOMAIN_STATS_KEY] || {};
+    const suggestions = getSuggestedDomains(stats);
     
     overlay.innerHTML = `
       <div class="card">
         <h3>Explain this using...</h3>
         <div class="preview-box">"${text.slice(0, 100)}${text.length > 100 ? '...' : ''}"</div>
-        <div class="btn-grid">
-          ${ANALOGY_DOMAINS.map(d => `
-            <button class="btn domain-btn ${d === lastDomain ? 'btn-primary' : ''}" data-domain="${d}">
-              ${d}
-            </button>
-          `).join('')}
-        </div>
+        <input type="text" id="domain-input" class="domain-input" placeholder="Type any domain (e.g. Cooking, UFC, Speedrunning)" autocomplete="off" />
+        ${suggestions.length ? `
+          <div class="chip-row">
+            ${suggestions.map(d => `<button class="chip" data-domain="${escapeHtml(d.display)}">${escapeHtml(d.display)}</button>`).join('')}
+          </div>
+        ` : ''}
+        <button id="submit-btn" class="btn btn-primary" style="width:100%">Explain</button>
         <button id="cancel-btn" class="btn" style="width:100%">Cancel</button>
       </div>
     `;
@@ -137,16 +168,33 @@ function showDomainModal(text) {
     overlay.onclick = (e) => {
       if (e.target === overlay) {
         overlay.remove();
-      }};
+    }};
+
+    const input = overlay.querySelector("#domain-input");
+    input.focus();
 
 
-    overlay.querySelectorAll(".domain-btn").forEach(btn => {
-      btn.onclick = (e) => {
-        const domain = btn.dataset.domain;
-        chrome.storage.local.set({ [LAST_DOMAIN_KEY]: domain });
-        overlay.remove();
-        handleExplanationRequest(text, domain);
+    overlay.querySelectorAll(".chip").forEach(chip => {
+      chip.onclick = () => {
+        input.value = chip.dataset.domain;
+        input.focus();
       };
+    });
+
+    const submit = () => {
+      const domain = input.value.trim();
+      if (!domain) {
+        input.classList.add("input error");
+        input.focus();
+        return;
+      }
+      overlay.remove();
+      handleExplanationRequest(text,domain);
+    };
+
+    overlay.querySelector("#submit-btn").onclick = submit;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
     });
 
     overlay.querySelector("#cancel-btn").onclick = () => overlay.remove();
@@ -154,6 +202,27 @@ function showDomainModal(text) {
     root.appendChild(overlay);
   });
 }
+
+function getSuggestedDomains(stats) {
+  const entries = Object.entries(stats).map(([key, val]) => ({ key, ...val }));
+  if (!entries.length) return [];
+
+  const byCount = [...entries].sort((a, b) => b.count - a.count).slice(0, 4);
+  const mostRecent = [...entries].sort((a, b) => b.lastUsed - a.lastUsed)[0];
+
+  const result = [...byCount];
+  if (mostRecent && !result.some(e => e.key === mostRecent.key)) {
+    result.push(mostRecent);
+  }
+  return result.slice(0, 5);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 
 //Loading state modal
 function showLoading() {
